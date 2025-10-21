@@ -12,6 +12,7 @@ mod bybit;
 mod error;
 mod file;
 mod hyperliquid;
+mod okx;
 mod throttler;
 
 #[derive(Parser, Debug)]
@@ -41,6 +42,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 "$symbol@trade",
                 "$symbol@bookTicker",
                 "$symbol@depth@0ms",
+                "$symbol@depth20@100ms",
                 // "$symbol@@markPrice@1s"
             ]
             .iter()
@@ -58,6 +60,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 "$symbol@trade",
                 "$symbol@bookTicker",
                 "$symbol@depth@0ms",
+                "$symbol@depth20@100ms",
                 // "$symbol@@markPrice@1s"
             ]
             .iter()
@@ -71,7 +74,12 @@ async fn main() -> Result<(), anyhow::Error> {
             ))
         }
         "binance" | "binancespot" => {
-            let streams = ["$symbol@trade", "$symbol@bookTicker", "$symbol@depth@100ms"]
+            let streams = [
+                "$symbol@trade", 
+                "$symbol@bookTicker", 
+                "$symbol@depth@100ms",      // Full depth, 100ms
+                "$symbol@depth20@100ms",    // 20-level snapshot, 100ms (Verified working!)
+            ]
                 .iter()
                 .map(|stream| stream.to_string())
                 .collect();
@@ -80,16 +88,35 @@ async fn main() -> Result<(), anyhow::Error> {
         }
         "bybit" => {
             let topics = [
-                "orderbook.1.$symbol",
-                "orderbook.50.$symbol",
-                "orderbook.500.$symbol",
-                "publicTrade.$symbol",
+                "orderbook.50.$symbol",    // 50档深度快照（包含足够的市场深度信息）
+                "publicTrade.$symbol",     // 逐笔成交
             ]
             .iter()
             .map(|topic| topic.to_string())
             .collect();
 
-            tokio::spawn(bybit::run_collection(topics, args.symbols, writer_tx))
+            tokio::spawn(bybit::run_collection(
+                topics,
+                args.symbols,
+                writer_tx,
+                "linear",  // 永续合约
+            ))
+        }
+        "bybitspot" => {
+            let topics = [
+                "orderbook.50.$symbol",    // 50档深度快照
+                "publicTrade.$symbol",     // 逐笔成交
+            ]
+            .iter()
+            .map(|topic| topic.to_string())
+            .collect();
+
+            tokio::spawn(bybit::run_collection(
+                topics,
+                args.symbols,
+                writer_tx,
+                "spot",  // 现货
+            ))
         }
         "hyperliquid" => {
             let subscriptions = ["trades", "l2Book", "bbo"]
@@ -100,6 +127,77 @@ async fn main() -> Result<(), anyhow::Error> {
             tokio::spawn(hyperliquid::run_collection(
                 subscriptions,
                 args.symbols,
+                writer_tx,
+            ))
+        }
+        "okx" | "okxspot" => {
+            // OKX WebSocket public channels
+            let channels = [
+                "trades",              // 交易数据
+                "bbo-tbt",             // 最优买卖价（tick-by-tick）
+                "books",               // 增量深度（400档，每100ms推送变化的档位）
+                "books5",              // 5档深度快照（每100ms推送完整的5档数据）
+            ]
+                .iter()
+                .map(|ch| ch.to_string())
+                .collect();
+
+            // Transform symbols to OKX format (e.g., BTCUSDT -> BTC-USDT)
+            let okx_symbols: Vec<String> = args.symbols
+                .iter()
+                .map(|s| {
+                    // Assume format like BTCUSDT, convert to BTC-USDT
+                    let upper = s.to_uppercase();
+                    if upper.ends_with("USDT") {
+                        let base = &upper[..upper.len() - 4];
+                        format!("{}-USDT", base)
+                    } else if upper.ends_with("USDC") {
+                        let base = &upper[..upper.len() - 4];
+                        format!("{}-USDC", base)
+                    } else {
+                        upper
+                    }
+                })
+                .collect();
+
+            tokio::spawn(okx::run_collection(
+                okx_symbols,
+                channels,
+                writer_tx,
+            ))
+        }
+        "okxswap" | "okxfutures" => {
+            // OKX perpetual swap or futures
+            let channels = [
+                "trades",              // 交易数据
+                "bbo-tbt",             // 最优买卖价（tick-by-tick）
+                "books",               // 增量深度（400档，每100ms推送变化的档位）
+                "books5",              // 5档深度快照（每100ms推送完整的5档数据）
+            ]
+                .iter()
+                .map(|ch| ch.to_string())
+                .collect();
+
+            // Transform symbols to OKX SWAP format (e.g., BTCUSDT -> BTC-USDT-SWAP)
+            let okx_symbols: Vec<String> = args.symbols
+                .iter()
+                .map(|s| {
+                    let upper = s.to_uppercase();
+                    if upper.ends_with("USDT") {
+                        let base = &upper[..upper.len() - 4];
+                        format!("{}-USDT-SWAP", base)
+                    } else if upper.ends_with("USDC") {
+                        let base = &upper[..upper.len() - 4];
+                        format!("{}-USDC-SWAP", base)
+                    } else {
+                        upper
+                    }
+                })
+                .collect();
+
+            tokio::spawn(okx::run_collection(
+                okx_symbols,
+                channels,
                 writer_tx,
             ))
         }

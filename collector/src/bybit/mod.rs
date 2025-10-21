@@ -32,9 +32,10 @@ pub async fn run_collection(
     topics: Vec<String>,
     symbols: Vec<String>,
     writer_tx: UnboundedSender<(DateTime<Utc>, String, String)>,
+    market_type: &str,
 ) -> Result<(), anyhow::Error> {
     let (ws_tx, mut ws_rx) = unbounded_channel();
-    let h = tokio::spawn(keep_connection(topics, symbols, ws_tx.clone()));
+    let h = tokio::spawn(keep_connection(topics, symbols, ws_tx.clone(), market_type.to_string()));
     while let Some((recv_time, data)) = ws_rx.recv().await {
         if let Err(error) = handle(&writer_tx, recv_time, data) {
             error!(?error, "couldn't handle the received data.");

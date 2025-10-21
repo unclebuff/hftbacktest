@@ -9,3 +9,7 @@ docs/_build
 **/target
 **/tmp_*
 **/*.so
+
+# 日志文件
+*.log
+collector_*.log

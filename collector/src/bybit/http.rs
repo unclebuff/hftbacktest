@@ -104,6 +104,7 @@ pub async fn keep_connection(
     topics: Vec<String>,
     symbol_list: Vec<String>,
     ws_tx: UnboundedSender<(DateTime<Utc>, Utf8Bytes)>,
+    market_type: String,
 ) {
     let mut error_count = 0;
     loop {
@@ -122,8 +123,17 @@ pub async fn keep_connection(
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
+        
+        // 根据市场类型选择不同的 WebSocket 端点
+        let url = match market_type.as_str() {
+            "spot" => "wss://stream.bybit.com/v5/public/spot",
+            "linear" => "wss://stream.bybit.com/v5/public/linear",
+            "inverse" => "wss://stream.bybit.com/v5/public/inverse",
+            _ => "wss://stream.bybit.com/v5/public/linear",
+        };
+        
         if let Err(error) = connect(
-            "wss://stream.bybit.com/v5/public/linear",
+            url,
             topics_,
             ws_tx.clone(),
         )

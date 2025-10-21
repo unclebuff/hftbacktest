@@ -1,0 +1,11 @@
+# 查看进程状态
+ps aux | grep collector
+
+# 查看日志
+tail -f /home/hft/hftbacktest/collector.log
+
+# 查看数据文件
+ls -lh /home/hft/hftbacktest/data/
+
+# 停止收集
+kill 404592
